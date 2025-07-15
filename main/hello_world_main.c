@@ -19,16 +19,16 @@ EventGroupHandle_t sensor_event;
 
 int global_var;
 int data_flag = 0;
-int sock;
+int sock_listen;
 
 void blink_led(void*)
 {
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT); // LED
-    xEventGroupWaitBits(sensor_event, (1 << 2), pdTRUE, pdFALSE, pdMS_TO_TICKS(60000));
+    xEventGroupWaitBits(sensor_event, (1 << 2), pdTRUE, pdFALSE, pdMS_TO_TICKS(0xffffffff));
     while(1)
     {
         char rx_buffer[128] = {0};
-        int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+        int len = recv(sock_listen, rx_buffer, sizeof(rx_buffer) - 1, 0);
         if (len < 0)
         {
             printf("Recv Failed");
@@ -64,7 +64,7 @@ void led_control(void*)
     {
         /**/
         char rx_buffer[128];
-        int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+        int len = recv(sock_listen, rx_buffer, sizeof(rx_buffer) - 1, 0);
 
         if (len < 0)
         {
@@ -236,9 +236,9 @@ void app_main()
 
     // Create Socket
     int ip_protocol = 0;
-    sock = socket(AF_INET, SOCK_STREAM, ip_protocol);
+    sock_listen = socket(AF_INET, SOCK_STREAM, ip_protocol);
     struct sockaddr_in dest_addr;
-    if (sock < 0)
+    if (sock_listen < 0)
     {
         printf("Create Socket Failed\n");
         return;
@@ -248,50 +248,37 @@ void app_main()
         printf("Create Socket Success\n");
     }
 
-    inet_pton(AF_INET, "192.168.86.55", &dest_addr.sin_addr);
+    dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(1234);
-    int error = connect (sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-    
+    //int error = connect (sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    int error = bind(sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+
     if (error != 0)
     {
-        printf("Connect To Server Failed\n");
+        printf("Bind To Server Failed\n");
     }
     else
     {
-        printf("Connect To Server Success\n");
+        printf("Bind To Server Success\n");
 
     }
 
-    send(sock, "hello server", 13, 0);
+    error = listen(sock_listen, 1);
+    if (error != 0) {
+        printf("Error occurred during listen\n");
+    }
 
-    char payload[512] = {0};
     while(1)
     {   
-        // while (data_flag != 1) // Do ở dưới vTaskDelay mình dã cmt out, nếu mà ở đây while như vậy sẽ tới tình trạng là, sẽ bị đứng ở cái app_main
-        // {
-        //     vTaskDelay(pdMS_TO_TICKS(10));
-        // }
-        // data_flag = 0;
-        // Wait for event
-        xEventGroupWaitBits(sensor_event, (1 << 0), pdTRUE, pdFALSE, pdMS_TO_TICKS(100000));
-        int num_data = uxQueueMessagesWaiting(xQueue1);
-        printf("[app main] sensor data: [ ");
-        send(sock, "[app main] sensor data: [ ",  26, 0);
-        if (xQueue1 != 0)
-        {
-            for (int i = 0; i < num_data; i++)
-            {
-                xQueueReceive(xQueue1, &ss_data, (pdMS_TO_TICKS(10000)));
-                printf("%d ", ss_data);
-                snprintf(payload, sizeof(payload), "%d ", ss_data);
-                send(sock, payload,  strlen(payload), 0);
-            }
+        struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
+        socklen_t addr_len = sizeof(source_addr);
+        int sock = accept(sock_listen, (struct sockaddr *)&source_addr, &addr_len);
+        if (sock < 0) {
+            printf("Unable to accept connection\n");
+            break;
         }
 
-        printf("]\n");
-        send(sock, "]\n",  2, 0);
-        //printf("[App Main] sensor data: %d\n", ss_data);
-        //vTaskDelay(pdMS_TO_TICKS(10000)); // Delay for WatchDog
+        printf("Have a client connection. IP: %s\n",((struct sockaddr *)&source_addr)->sa_data);
     }
 }
