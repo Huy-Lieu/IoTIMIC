@@ -250,7 +250,7 @@ void app_main()
 
     dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(1234);
+    dest_addr.sin_port = htons(80);
     //int error = connect (sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     int error = bind(sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
 
@@ -274,11 +274,54 @@ void app_main()
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
         int sock = accept(sock_listen, (struct sockaddr *)&source_addr, &addr_len);
-        if (sock < 0) {
+        if (sock < 0) 
+        {
             printf("Unable to accept connection\n");
             break;
         }
+        char rx_buffer[1024] = {0};
+        int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
 
-        printf("Have a client connection. IP: %s\n",((struct sockaddr *)&source_addr)->sa_data);
+        char* html ="HTTP/1.1 200 OK\n"\
+                    "Content-Type: text/html; charset=UTF-8\n"\
+                    "Content-Length: 388\n"\
+                    "Connection: close\n"\
+                    "\n"\
+                    "<!DOCTYPE html>"\
+                    "<html lang=\"vi\">"\
+                    "<head>"\
+                    "<meta charset=\"UTF-8\">"\
+                    "<title>Hai nút đơn giản</title>"\
+                    "<style>"\
+                    "    button {"\
+                    "        padding: 10px 20px;"\
+                    "        margin: 10px;"\
+                    "        font-size: 16px;"\
+                    "        cursor: pointer;"\
+                    "    }"\
+                    "</style>"\
+                    "</head>"\
+                    "<body>"\
+                    "<button onclick=\"window.location.href='http://192.168.86.57/ledon'\">Nút 1</button>"\
+                    "<button onclick=\"window.location.href='http://192.168.86.57/ledoff'\">Nút 2</button>"\
+                    "</body>"\
+                    "</html>";
+        
+
+        // //printf("Have a client connection. IP: %s\n",((struct sockaddr *)&source_addr)->sa_data);
+        // char *ip = ((struct sockaddr *)&source_addr)->sa_data;
+        // printf("Have a client connection. IP: %u.%u.%u.%u\n",  ip[0], ip[1], ip[2], ip[3]);
+        printf("Data Recv = %s\n", rx_buffer);
+
+        if (strstr(rx_buffer, "ledon"))
+        {
+            gpio_set_level(GPIO_NUM_2, 1);
+        }
+        else if (strstr(rx_buffer, "ledoff"))
+        {
+            gpio_set_level(GPIO_NUM_2, 0);
+        }
+        send(sock, html, strlen(html), 0);
+        close(sock);
     }
 }
