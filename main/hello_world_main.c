@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include <sys/socket.h>
 #include <string.h>
+#include <esp_http_server.h>
 
 
 
@@ -169,6 +170,60 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+char * html = "<!DOCTYPE html>"\
+                "<html lang=\"vi\">"\
+                "<head>"\
+                "<meta charset=\"UTF-8\">"\
+                "<title>Hai nút đơn giản</title>"\
+                "<style>"\
+                "    button {"\
+                "        padding: 10px 20px;"\
+                "        margin: 10px;"\
+                "        font-size: 16px;"\
+                "        cursor: pointer;"\
+                "    }"\
+                "</style>"\
+                "</head>"\
+                "<body>"\
+                "<button onclick=\"window.location.href='http://192.168.86.57/ledon'\">Nút 1</button>"\
+                "<button onclick=\"window.location.href='http://192.168.86.57/ledoff'\">Nút 2</button>"\
+                "</body>"\
+                "</html>";
+
+esp_err_t index_handler(httpd_req_t *req)
+{
+    const char* resp_str = (const char*) req->user_ctx;
+    httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+    // End response
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+esp_err_t led_on_handler(httpd_req_t *req)
+{
+    printf("Client Turns LED ON");
+    const char* resp_str = (const char*) req->user_ctx;
+    httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+    // End response
+    httpd_resp_send_chunk(req, NULL, 0);
+
+    gpio_set_level(GPIO_NUM_2, 1);
+    return ESP_OK;
+}
+
+esp_err_t led_off_handler (httpd_req_t *req)
+{
+    printf("Client Turns LED OFF");
+    const char* resp_str = (const char*) req->user_ctx;
+    httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+    // End response
+    httpd_resp_send_chunk(req, NULL, 0);
+
+    gpio_set_level(GPIO_NUM_2, 0);
+    return ESP_OK;
+}
+
+
 
 void app_main()
 {
@@ -233,95 +288,45 @@ void app_main()
     ESP_ERROR_CHECK(esp_wifi_start());
 
     xEventGroupWaitBits(sensor_event, (1 << 1), pdTRUE, pdFALSE, pdMS_TO_TICKS(10000000000));
-
-    // Create Socket
-    int ip_protocol = 0;
-    sock_listen = socket(AF_INET, SOCK_STREAM, ip_protocol);
-    struct sockaddr_in dest_addr;
-    if (sock_listen < 0)
+    
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    if (httpd_start(&server, &config) == ESP_OK)
     {
-        printf("Create Socket Failed\n");
-        return;
-    }
-    else
-    {
-        printf("Create Socket Success\n");
-    }
+        // Set URI handlers
+        printf("Registering URI Handlers\n");
+        httpd_uri_t index = 
+                            {
+                                .uri       = "/",
+                                .method    = HTTP_GET,
+                                .handler   = index_handler,
+                                .user_ctx  = html
+                            };
 
-    dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(80);
-    //int error = connect (sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-    int error = bind(sock_listen, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        
+        httpd_uri_t led_on = 
+                            {
+                                .uri       = "/ledon",
+                                .method    = HTTP_GET,
+                                .handler   = led_on_handler,
+                                .user_ctx  = "LED ON"
+                            };
 
-    if (error != 0)
-    {
-        printf("Bind To Server Failed\n");
-    }
-    else
-    {
-        printf("Bind To Server Success\n");
+        httpd_uri_t led_off = 
+                            {
+                                .uri       = "/ledoff",
+                                .method    = HTTP_GET,
+                                .handler   = led_off_handler,
+                                .user_ctx  = "LED OFF"
+                            };
 
-    }
-
-    error = listen(sock_listen, 1);
-    if (error != 0) {
-        printf("Error occurred during listen\n");
+        httpd_register_uri_handler(server, &led_on);
+        httpd_register_uri_handler(server, &led_off);
+        httpd_register_uri_handler(server, &index);
     }
 
     while(1)
     {   
-        struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
-        socklen_t addr_len = sizeof(source_addr);
-        int sock = accept(sock_listen, (struct sockaddr *)&source_addr, &addr_len);
-        if (sock < 0) 
-        {
-            printf("Unable to accept connection\n");
-            break;
-        }
-        char rx_buffer[1024] = {0};
-        int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-
-        char* html ="HTTP/1.1 200 OK\n"\
-                    "Content-Type: text/html; charset=UTF-8\n"\
-                    "Content-Length: 388\n"\
-                    "Connection: close\n"\
-                    "\n"\
-                    "<!DOCTYPE html>"\
-                    "<html lang=\"vi\">"\
-                    "<head>"\
-                    "<meta charset=\"UTF-8\">"\
-                    "<title>Hai nút đơn giản</title>"\
-                    "<style>"\
-                    "    button {"\
-                    "        padding: 10px 20px;"\
-                    "        margin: 10px;"\
-                    "        font-size: 16px;"\
-                    "        cursor: pointer;"\
-                    "    }"\
-                    "</style>"\
-                    "</head>"\
-                    "<body>"\
-                    "<button onclick=\"window.location.href='http://192.168.86.57/ledon'\">Nút 1</button>"\
-                    "<button onclick=\"window.location.href='http://192.168.86.57/ledoff'\">Nút 2</button>"\
-                    "</body>"\
-                    "</html>";
-        
-
-        // //printf("Have a client connection. IP: %s\n",((struct sockaddr *)&source_addr)->sa_data);
-        // char *ip = ((struct sockaddr *)&source_addr)->sa_data;
-        // printf("Have a client connection. IP: %u.%u.%u.%u\n",  ip[0], ip[1], ip[2], ip[3]);
-        printf("Data Recv = %s\n", rx_buffer);
-
-        if (strstr(rx_buffer, "ledon"))
-        {
-            gpio_set_level(GPIO_NUM_2, 1);
-        }
-        else if (strstr(rx_buffer, "ledoff"))
-        {
-            gpio_set_level(GPIO_NUM_2, 0);
-        }
-        send(sock, html, strlen(html), 0);
-        close(sock);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
