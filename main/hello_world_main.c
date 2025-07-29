@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <string.h>
 #include <esp_http_server.h>
+#include "mqtt_client.h"
 
 
 
@@ -71,6 +72,31 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_client_handle_t client = event->client;
+    int msg_id;
+
+    switch ((esp_mqtt_event_id_t)event_id)
+    {
+        case MQTT_EVENT_CONNECTED:
+            printf("MQTT EVENT CONNECTED\n\n");
+            msg_id = esp_mqtt_client_publish(client, "info", "hello broker", 0, 1, 0);
+            msg_id = esp_mqtt_client_subscribe(client, "esp", 0);
+            break;
+        case MQTT_EVENT_DATA:
+            printf("MQTT_EVENT_DATA\n");
+            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+            printf("DATA=%.*s\r\n", event->data_len, event->data);
+        break;
+
+        default:
+            printf("Other event id:%d\n", event->event_id);
+        break;
+    }
+}
+
 void app_main()
 {
     //Initialize NVS
@@ -124,6 +150,14 @@ void app_main()
 
     xEventGroupWaitBits(sensor_event, (1 << 1), pdTRUE, pdFALSE, pdMS_TO_TICKS(10000000000));
 
+    // MQTT Codes
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = "mqtt://192.168.86.55",
+        .broker.address.port = 1883,
+    };
+    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    esp_mqtt_client_start(client);
 
     while(1)
     {   
